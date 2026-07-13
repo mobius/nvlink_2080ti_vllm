@@ -1,0 +1,3 @@
+[submodule "weicj-vllm-2080ti"]
+	path = weicj-vllm-2080ti
+	url = git@github.com:mobius/weicj-vllm-2080ti.git
