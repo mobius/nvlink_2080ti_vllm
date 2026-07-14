@@ -256,6 +256,49 @@
 
 ---
 
+## 2026-07-13 第十三批（Qwimi 非 GGUF 调研）
+
+- **Qwimi / Qwopus**：基于 `Qwen/Qwen3.6-27B` 的社区衍生模型系列，主打代码、Agent 与推理能力。二者多采用 `Qwen3_5ForConditionalGeneration` 架构，含 `vision_config`，属于**多模态（vision-language）模型**。
+- **BF16（bfloat16）**：16-bit 浮点权重格式，动态范围与 FP32 相同但精度较低。27B 模型以 BF16 加载约需 54 GB 显存，超过双 2080Ti 22GB 总显存（44 GB），必须再做量化才能部署。
+- **多模态模型 / VLM（Vision-Language Model）**：同时接受文本与图像输入、在语言模型之外还包含视觉编码器（vision encoder）的模型。Qwimi/Qwopus 的 `config.json` 中出现 `vision_config` 即表明该属性；纯文本推理栈接入时可能遇到视觉模块兼容性/显存占用问题。
+- **compressed-tensors**：一种通用量化权重存储格式（常与 Neural Compressor / AutoRound 相关），不同于原生 AWQ/GPTQ 布局。加载时可能走 Marlin 等混合精度 kernel 路径，在 SM75 上的兼容性需实测验证。
+- **MTP preserved / Native-MTP-Preserved 量化版**：在量化过程中保留模型原生 Multi-Token Prediction（MTP）头的 checkpoint。对比被 strip 掉 MTP 头的量化版，这类模型可在 vLLM 中直接启用 `speculative-config` 进行投机解码，无需额外 draft 模型。
+
+---
+
+---
+
+---
+
+---
+
+---
+
+## 2026-07-13 第十四批（ThinkingCap 切换）
+
+- **MTP head / MTP 头**：Multi-Token Prediction 所需的额外解码层权重。量化/微调时若被剥离，模型将失去一次预测多个 token 的能力，无法与 vLLM 的 `speculative-config method=mtp` 配合加速。
+- **投机解码 overhead**：当模型没有合适 draft 权重但投机框架仍被启用时，vLLM 会反复走 fallback 路径，反而增加调度/内存开销，导致吞吐低于普通解码。
+
+---
+
+## 2026-07-14 第十五批（tool_choice: auto 报错修复）
+
+- **`"auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set`**：vLLM 在收到 `tool_choice: "auto"` 请求但启动时未开启 `--enable-auto-tool-choice` 时返回的错误。解决方式是在启动命令中加入 `--enable-auto-tool-choice --tool-call-parser <parser>`（Qwen3 系列用 `qwen3_xml`）。
+- **`SERVICE_SCOPE=lan`**：weicj launcher 的环境变量，`local` 时 vLLM 只监听 `127.0.0.1`，`lan` 时监听 `0.0.0.0`，便于局域网或其他机器直接访问 `http://<服务器IP>:8000/v1`。
+- **工具调用 smoke test**：启动后发送一个带 `tools` 和 `tool_choice: "auto"` 的 chat completion 请求，验证后端能正确返回 `tool_calls` 而不是报错。本项目使用 "查询北京天气" 作为固定测试用例。
+
+---
+
+## 2026-07-14 第十六批（Tau agent 接入）
+
+- **Tau / tau-ai**：HuggingFace 发布的 Python terminal coding agent，架构分为 `tau_ai`（provider 适配层）、`tau_agent`（agent loop）、`tau_coding`（coding 应用层）三层。
+- **provider catalog**：Tau 在 `~/.tau/catalog.toml` 中注册的模型供应商配置，用于把 OpenAI-compatible 端点（如本地 vLLM）接入 Tau 的 agent loop。
+- **durable session**：Tau 默认把每次对话以 JSONL 形式持久化到 `~/.tau/sessions/`，可随时恢复上下文。
+- **slash command**：Tau TUI 中的 `/` 命令（如 `/clear` 清上下文、`/compact` 压缩历史）。
+- **event stream**：Tau agent 与模型之间的统一事件抽象（文本增量、工具调用、工具结果、错误等），provider 层负责把各厂商 API 转换为同一事件流。
+
+---
+
 ---
 
 ---

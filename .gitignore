@@ -20,6 +20,7 @@ run-logs/
 
 # Temporary profiles and local data
 .tmp-profiles/
+.tmp-tau-test/
 models/
 
 # Plugin / model build artifacts

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 评估 Qwen3.6-27B 在 weicj vLLM 服务上的输出质量
+# 评估 Qwen3.6-27B / ThinkingCap 等模型在 weicj vLLM 服务上的输出质量
 # 用法：
-#   1. 先启动 vLLM 服务（例如 bash run_fast_tqk8v4_bench.sh 会先启动）
+#   1. 先启动 vLLM 服务
 #   2. bash run_quality_eval.sh [label后缀]
-# 可通过环境变量覆盖：SERVED_NAME, BASE_URL
+# 可通过环境变量覆盖：SERVED_NAME, BASE_URL, DISABLE_THINKING
 set -euo pipefail
 
 ROOT_DIR="/mnt/hdd_storage/vllm_2080ti"
@@ -12,6 +12,7 @@ LOG_DIR="${ROOT_DIR}/logs"
 
 SERVED_NAME="${SERVED_NAME:-qwen27b-int4-tqk8v4-256K-mtp3-text-only-cu128}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:8000/v1}"
+DISABLE_THINKING="${DISABLE_THINKING:-1}"
 LABEL_SUFFIX="${1:-$(date +%Y%m%d-%H%M%S)}"
 LABEL="quality-eval-${LABEL_SUFFIX}"
 OUT_FILE="${LOG_DIR}/${LABEL}.jsonl"
@@ -19,7 +20,6 @@ OUT_FILE="${LOG_DIR}/${LABEL}.jsonl"
 echo "==> 检查服务是否就绪..."
 if ! curl -s "${BASE_URL/\$1/}/models" >/dev/null 2>&1; then
   echo "ERROR: 服务未就绪，请先启动 vLLM 服务"
-  echo "  例如：cd ${ROOT_DIR} && REASONING_PARSER=off bash run_fast_tqk8v4_bench.sh"
   exit 1
 fi
 
@@ -40,6 +40,7 @@ OUT_FILE = Path("${OUT_FILE}")
 SERVED_NAME = "${SERVED_NAME}"
 BASE_URL = "${BASE_URL}"
 LABEL = "${LABEL}"
+DISABLE_THINKING = "${DISABLE_THINKING}" == "1"
 
 def chat(messages, max_tokens=512, temperature=0.0):
     payload = {
@@ -49,13 +50,19 @@ def chat(messages, max_tokens=512, temperature=0.0):
         "temperature": temperature,
         "stream": False,
     }
+    if DISABLE_THINKING:
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     try:
         r = requests.post(f"{BASE_URL}/chat/completions", json=payload, timeout=120)
         r.raise_for_status()
         data = r.json()
         choice = data.get("choices", [{}])[0]
         msg = choice.get("message", {}) or {}
-        content = msg.get("content") or msg.get("reasoning_content") or ""
+        content = msg.get("content") or ""
+        reasoning = msg.get("reasoning") or msg.get("reasoning_content") or ""
+        # If thinking wasn't disabled at engine level, prefer direct content over reasoning
+        if not content and reasoning:
+            content = reasoning
         usage = data.get("usage", {}) or {}
         return {
             "content": content,

@@ -44,12 +44,17 @@ MODEL_DIR=/mnt/hdd_storage/vllm_2080ti/models/ThinkingCap-Qwen3.6-27B-AWQ \
 SERVED_NAME=thinkingcap-qwen3.6-27b-awq \
 GPU_UTIL=0.85 \
 PORT=8000 \
+SERVICE_SCOPE=lan \
 REASONING_PARSER=qwen3 \
 DEFAULT_CHAT_TEMPLATE_KWARGS='{"enable_thinking":true}' \
+ENABLE_AUTO_TOOL_CHOICE=1 \
+TOOL_CALL_PARSER=qwen3_xml \
 bash serve_fast_tqk8v4_web.sh
 ```
 
-说明：所有服务脚本和评估脚本都支持通过 `MODEL_DIR` / `SERVED_NAME` / `VLLM_MODEL` 等环境变量切换模型。例如换成 `sahilchachra/ThinkingCap-Qwen3.6-27B-AWQ` 时，设置 `MODEL_DIR` 指向下载后的本地目录即可。
+说明：
+- 所有服务脚本和评估脚本都支持通过 `MODEL_DIR` / `SERVED_NAME` / `MTP_K` 等环境变量切换模型。例如换成 `sahilchachra/ThinkingCap-Qwen3.6-27B-AWQ` 时，设置 `MODEL_DIR` 指向下载后的本地目录，并设置 `MTP_K=0`（该模型无 MTP 头）。
+- `ENABLE_AUTO_TOOL_CHOICE=1` + `TOOL_CALL_PARSER=qwen3_xml` 已默认开启，支持 Agent 发送 `tool_choice: auto`；如果客户端不需要工具调用，可设 `ENABLE_AUTO_TOOL_CHOICE=0` 关闭。
 
 ### 3. 启动 Anthropic 兼容代理（给只支持 Claude API 的 Agent 用）
 
@@ -65,7 +70,32 @@ api_key: sk-test            # 任意值，未设置 PROXY_API_KEY 时不校验
 model: qwen27b-int4-tqk8v4-256K-mtp3-text-only-cu128
 ```
 
-### 4. 启动网页聊天界面（二选一）
+### 4. 启动 Tau coding agent（终端 Agent）
+
+需要先确保 vLLM 服务已在 `0.0.0.0:8000` 运行，然后：
+
+```bash
+bash setup_tau_local_vllm.sh   # 创建 .venv-tau、安装 tau-ai、配置 ~/.tau/
+bash run_tau_smoke_test.sh     # 运行基础对话 + bash/read/write 验证
+```
+
+日常非交互式使用：
+
+```bash
+source .venv-tau/bin/activate
+export VLLM_API_KEY=sk-vllm
+tau -p "请用 bash 工具查看当前目录" --output text
+```
+
+进入 TUI：
+
+```bash
+tau
+```
+
+详细说明见 `docs/impl/20260714-103000-tau-agent-local-vllm-validation.md`。
+
+### 5. 启动网页聊天界面（二选一）
 
 ```bash
 # Gradio 轻量界面
@@ -92,7 +122,8 @@ WEBUI_ADMIN_PASSWORD=YourStrongPassword bash serve_open_webui.sh
 │   ├── anthropic_proxy.py # Anthropic Messages API -> vLLM OpenAI API 代理
 │   └── gradio_chat.py     # Gradio 聊天前端
 ├── serve_*.sh             # 各类一键启动脚本
-├── run_*.sh               # 性能/质量评估脚本
+├── run_*.sh               # 性能/质量/Tau 评估脚本
+├── setup_tau_local_vllm.sh # Tau agent 一键安装配置脚本
 ├── serve_qwen36.sh        # caovan 插件路线启动脚本
 └── weicj-vllm-2080ti/     # git submodule，weicj/vLLM-2080Ti-Definitive fork
 ```
@@ -105,8 +136,9 @@ WEBUI_ADMIN_PASSWORD=YourStrongPassword bash serve_open_webui.sh
 - 256K 上下文在 2×2080Ti 22G 上可运行。
 - weicj 路线 `fast/tqk8v4` profile 在 PP4096/TG128 口径下约 **90 tok/s**（AWQ-INT4）。
 - 大海捞针（needle-in-haystack）长上下文测试通过。
-- 完整支持 reasoning/thinking 输出、auto tool choice、Anthropic API 代理。
-- 服务脚本与评估脚本已模型无关化：通过 `MODEL_DIR` / `SERVED_NAME` / `VLLM_MODEL` 环境变量即可切换同系列 AWQ/GPTQ INT4 checkpoint，已验证可接入 `sahilchachra/ThinkingCap-Qwen3.6-27B-AWQ`。
+- 完整支持 reasoning/thinking 输出、auto tool choice、Anthropic API 代理、Tau terminal agent 接入。
+- 服务脚本与评估脚本已模型无关化：通过 `MODEL_DIR` / `SERVED_NAME` / `MTP_K` 等环境变量即可切换同系列 AWQ/GPTQ INT4 checkpoint，已验证可接入 `sahilchachra/ThinkingCap-Qwen3.6-27B-AWQ`。
+  - 该模型**未保留 MTP 头**，启用 `MTP_K=3` 会反噬吞吐；正确用法是 `MTP_K=0`，此时 PP4096/TG128 decode 约 **32 tok/s**。
 
 详细数据与踩坑过程见 `docs/impl/` 各文件。
 
